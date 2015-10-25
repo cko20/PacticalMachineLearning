@@ -1,0 +1,136 @@
+---
+title: "Course Project: Practical Machine Learning"
+output: html_document
+author: Christopher Koch
+date: 23.10.2015
+---
+
+
+**Background**
+The Course Project deals with data from fitness measurement devices. Six participants of a study were asked to perform barbell lifts correctly and incorrectly in five different ways. The goal of this project is to develop a model which uses data from accelerometers on the belt, forearm, arm, and dumbell in order to predict the manner in which the members did the exercise. This paper describes the approach of cleaning the data, testing different cluster models and choose the best model in terms of their accuracy. Afterwards the best model will be applied to twenty test cases in order to predict the manner of the exercise.
+
+
+
+###**Preparation of Data**
+First the caret package is loaded which helps already in the data cleaning phase to preprocess the data.
+The training and the testing datasets are loaded. Both have 160 variables, from which many contain only very few or none values.
+Those are getting eliminated in a first step.
+
+```{r, warning=FALSE}
+library(caret)
+#read in the data from csv
+training <- read.csv("pml-training.csv")
+testing <- read.csv("pml-testing.csv")
+#identify variables which have nearly no variation beceause they are containing only few values
+nearzero <- nearZeroVar(training, saveMetrics = TRUE)
+nearzero2 <- nearZeroVar(testing, saveMetrics = TRUE)
+#remove those variables from the dataframes
+training <- training[, !nearzero$nzv]
+testing <- testing[, !nearzero2$nzv]
+#training data frame still has variables with only NAs, which are removed too
+training <- training[,colSums(is.na(training)) == 0]
+#remove non relevant variables (names, number and timestamps)
+training <- training[, -c(1:5)]
+testing <- testing[, -c(1:5)]
+#test whether both dataframes have same columns in order to make sure predictions can be made at a later stage
+sameNames <- colnames(training) == colnames(testing)
+colnames(training)[sameNames==FALSE]
+colnames(testing)[sameNames==FALSE]
+```
+
+Now we have a training dataset with 54 variables. One is the "classe" variable, which shall be predicted. Apart from that we have a testing dataset with the same variables, but with a variable called "problem_id" instead of the "classe" variable.
+
+
+###**Testing different Clustering Models**
+Now three different methods will be used to train models from the training dataset.
+
+For all models, the options are set to equal levels (if they apply) beforehand. The criterion for the model selection is the accuracy respectively the out of sample error. Therefor cross-validation method will be applied. In this particular case the training dataset will be split in 6 folds. The model will be run 6 times taking 5 of the subsets as training data and predicting the remaining subset. The average error is the estimate for the out of sample error.
+
+```{r, warning=FALSE}
+set.seed(1234)
+SetTraincontrol <- trainControl(method = "cv", number = 6, verboseIter=FALSE , preProcOptions="pca", allowParallel=TRUE)
+```
+
+
+**Gradient Boosting**
+First a Gradient Boosting model will be trained. 
+
+```{r, warning=FALSE}
+modelRp <- train(classe ~ ., method="rpart", data=training, trControl= SetTraincontrol)
+
+modelRp
+```
+
+The train function uses cross-validation to optimize the model hyperparameters. In this case it tries three different complexity parameters (cp). The best cp is 0.039 with an accuracy of 52,88%. Thus the estimater for the out of sample error is 47,12%.
+
+```{r, warning=FALSE}
+library(rattle)
+fancyRpartPlot(modelRp$finalModel)
+```
+
+**Random Forest**
+
+The next model is a random forest model. In random forests, there is no need for cross-validation or a separate test set to get an unbiased estimate of the test set error. It is estimated internally and named the out-of-bag (oob) error estimate.
+
+```{r, warning=FALSE}
+library(randomForest)
+
+modelRf <- randomForest(classe ~. , data=training, method="class", trControl= SetTraincontrol)
+
+modelRf
+```
+
+The OOB estimate of  error rate is 0.15%.
+
+
+**Logit Boosted model**
+
+The last model is a Logit Boosted model.
+
+```{r, warning=FALSE}
+modelLb <- train(classe ~ ., data = training, method = "LogitBoost", trControl= SetTraincontrol)
+
+
+modelLb
+```
+
+The train function uses again cross-validation to optimize the model hyperparameters. In this case it tries three different numbers of boosting iterations (nIter). The best model in terms of accuracy has 31 iterations and an accuracy of 93,12%. Thus the estimater for the out of sample error is 6,88%.
+
+
+###**Model selection and Prediction**
+
+
+According to accuracy values of the three different models the random forest model is choosen as the final model. The expected out-of-sample error is assumed to be 0.15%.
+
+The random forest model is now applied on the testing dataset to predict the manner in which the members did the exercise.
+
+```{r, warning=FALSE}
+
+submission <- predict(modelRf, testing)
+submission
+
+```
+
+
+###**Submission of 20 test files**
+
+With the given function one file for each of the 20 test predictions is created.
+
+```{r, warning=FALSE}
+
+
+
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+
+pml_write_files(submission)
+
+
+```
+
+
